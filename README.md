@@ -27,7 +27,7 @@ A modern web interface for managing [llama-swap](https://github.com/mostlygeek/l
 
 1. **Clone this repository**:
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/pkeffect/llama-swap_ui
    cd llama-swap-manager
    ```
 
