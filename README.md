@@ -143,7 +143,7 @@ The manager interfaces with llama-swap's OpenAI-compatible API:
 ## 🔧 Open WebUI Integration
 
 - Go to edit conneciton in admin settings
-- Click on Add COnnection icon under OpenAI API
+- Click on Add Connection icon under OpenAI API
 - Add your url:port
 - API Key can be whatever
 - Suggest using tags or prefix id as well
