@@ -1,0 +1,81 @@
+# Llama-Swap Manager Settings Configuration
+# This file stores the connection and path settings for the manager
+
+# Llama-Swap Instance Configuration
+llama_swap:
+  # URL/Path to your llama-swap instance
+  # Examples:
+  # - http://localhost:8090 (local docker)
+  # - http://192.168.1.100:8090 (remote docker)
+  # - http://myserver.com:8090 (remote server)
+  url: "http://localhost:8090"
+  
+  # API version endpoint
+  api_version: "v1"
+  
+  # Connection timeout (seconds)
+  timeout: 30
+
+# Models Configuration
+models:
+  # Path to models directory
+  # Examples:
+  # - ./models (relative to current directory)
+  # - /home/user/models (absolute host path)
+  # - /mnt/storage/models (mounted storage)
+  # - models (docker volume name)
+  path: "./models"
+  
+  # Supported model formats
+  supported_formats:
+    - ".gguf"
+    - ".ggml"
+  
+  # Auto-detect models on startup
+  auto_detect: true
+  
+  # Maximum file size for upload (MB)
+  max_upload_size: 50000
+
+# Configuration File Management
+config_files:
+  # Path to llama-swap config.yaml
+  # Examples:
+  # - ./config.yaml (relative)
+  # - /path/to/config.yaml (absolute)
+  # - config.yaml (same directory)
+  llama_swap_config: "./config.yaml"
+  
+  # Backup config files before changes
+  backup_on_change: true
+  
+  # Auto-reload config after changes
+  auto_reload: true
+
+# UI Settings
+ui:
+  # Theme preference
+  theme: "dark"
+  
+  # Auto-refresh intervals (seconds)
+  refresh_intervals:
+    models: 30
+    stats: 60
+    connection: 30
+  
+  # Log retention (number of entries)
+  max_log_entries: 1000
+  
+  # Show advanced options by default
+  show_advanced: false
+
+# Development/Debug Settings
+debug:
+  # Enable debug logging
+  enabled: false
+  
+  # Log API requests/responses
+  log_api_calls: false
+  
+  # Mock mode (for testing without llama-swap)
+  mock_mode: false

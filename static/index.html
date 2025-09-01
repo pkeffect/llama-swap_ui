@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🦙 Llama-Swap Manager</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="theme-switcher">
+        <button class="theme-toggle" id="theme-toggle">
+            <span class="theme-icon">🌙</span>
+            <span class="theme-text">Light</span>
+        </button>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1 class="title">🦙 Llama-Swap Manager</h1>
+            <p class="subtitle">Advanced local LLM model management</p>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab active" data-tab="models">📁 Models</button>
+            <button class="tab" data-tab="config">⚙️ Configuration</button>
+            <button class="tab" data-tab="settings">🔧 Settings</button>
+            <button class="tab" data-tab="system">📊 System</button>
+            <button class="tab" data-tab="logs">📋 Logs</button>
+        </nav>
+
+        <!-- Models Tab -->
+        <div class="tab-content active" id="models-tab">
+            <div class="card">
+                <h3>📥 Quick Actions</h3>
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                    <input type="url" id="model-url" placeholder="https://huggingface.co/user/model/resolve/main/model.gguf" style="flex: 2; min-width: 300px;">
+                    <input type="text" id="model-filename" placeholder="model-name.gguf" style="flex: 1; min-width: 200px;">
+                    <button class="btn btn-primary" id="download-btn">📥 Download Model</button>
+                </div>
+                <div class="form-help">💡 This will attempt to download directly to your models directory, or provide commands if browser permissions don't allow direct access.</div>
+                
+                <div id="progress-container" style="display: none; margin-top: 1rem;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <p id="progress-text" class="form-help">Processing...</p>
+                </div>
+            </div>
+
+            <div class="upload-zone" id="upload-zone" style="padding: 1.5rem; margin-bottom: 1.5rem;">
+                <div style="display: flex; align-items: center; justify-content: center; gap: 1rem;">
+                    <div class="upload-zone-icon" style="font-size: 1.5rem; margin: 0;">📁</div>
+                    <span style="font-weight: 500;">Drag GGUF files here to load</span>
+                    <button class="btn btn-secondary" style="padding: 0.5rem 1rem;">Browse Files</button>
+                </div>
+                <input type="file" id="file-input" multiple accept=".gguf" style="display: none;">
+            </div>
+            
+            <div class="card">
+                <h3>📄 Available Models</h3>
+                <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" id="refresh-models">🔄 Refresh Models List</button>
+                    <span id="model-count" style="color: var(--text-secondary);">Loading...</span>
+                </div>
+                <div id="models-list"></div>
+            </div>
+        </div>
+
+        <!-- Configuration Tab -->
+        <div class="tab-content" id="config-tab">
+            <div class="card">
+                <h2>📋 Current Config File</h2>
+                <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" id="reload-config">🔄 Reload Config</button>
+                    <button class="btn btn-secondary" id="copy-current-config">📋 Copy Current</button>
+                    <button class="btn btn-warning" id="backup-config">💾 Backup Config</button>
+                </div>
+                <div class="config-viewer" id="current-config-viewer">
+Loading configuration file...
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🔧 Model Configuration</h2>
+                
+                <form id="model-form">
+                    <div class="form-group">
+                        <label class="form-label" for="config-name">Model Name (API ID)</label>
+                        <input type="text" id="config-name" placeholder="my-model" required>
+                        <div class="form-help">This will be the model name used in API calls.</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="config-file">Model File Path</label>
+                        <input type="text" id="config-file" placeholder="/models/your-model.gguf" required>
+                        <div class="form-help">Full path to the GGUF model file inside the container.</div>
+                    </div>
+
+                    <h3 class="config-section">🎯 Basic Settings</h3>
+                    <div class="grid">
+                        <div class="form-group">
+                            <label class="form-label" for="config-ngl">GPU Layers (-ngl)</label>
+                            <input type="number" id="config-ngl" value="99" min="0">
+                            <div class="form-help">Number of layers to run on GPU</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="config-ctx">Context Size (-c)</label>
+                            <input type="number" id="config-ctx" value="4096" min="512">
+                            <div class="form-help">Maximum context length</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="config-batch">Batch Size (-b)</label>
+                            <input type="number" id="config-batch" value="2048" min="1">
+                            <div class="form-help">Processing batch size</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="config-threads">Threads (-t)</label>
+                            <input type="number" id="config-threads" placeholder="auto" min="1">
+                            <div class="form-help">Number of CPU threads</div>
+                        </div>
+                    </div>
+
+                    <h3 class="config-section">🎲 Sampling Settings</h3>
+                    <div class="grid">
+                        <div class="form-group">
+                            <label class="form-label" for="config-temp">Temperature</label>
+                            <input type="number" id="config-temp" step="0.1" value="0.7" min="0" max="2">
+                            <div class="form-help">Randomness in responses (0.1-2.0)</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="config-top-p">Top-P</label>
+                            <input type="number" id="config-top-p" step="0.01" value="0.95" min="0" max="1">
+                            <div class="form-help">Nucleus sampling threshold</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="config-top-k">Top-K</label>
+                            <input type="number" id="config-top-k" value="40" min="1">
+                            <div class="form-help">Top-K sampling limit</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="config-repeat-penalty">Repeat Penalty</label>
+                            <input type="number" id="config-repeat-penalty" step="0.01" value="1.10" min="0.1" max="2">
+                            <div class="form-help">Repetition penalty factor</div>
+                        </div>
+                    </div>
+
+                    <h3 class="config-section">⚡ Performance Settings</h3>
+                    <div class="grid">
+                        <div class="form-group">
+                            <label class="form-label" for="config-ubatch">Micro Batch Size (-ub)</label>
+                            <input type="number" id="config-ubatch" value="512" min="1">
+                            <div class="form-help">Micro batch size for prompt processing</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="config-mlock">Memory Lock</label>
+                            <select id="config-mlock">
+                                <option value="">Default</option>
+                                <option value="--mlock">Enable (--mlock)</option>
+                            </select>
+                            <div class="form-help">Lock model in memory</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="config-numa">NUMA Strategy</label>
+                            <select id="config-numa">
+                                <option value="">Default</option>
+                                <option value="--numa distribute">Distribute</option>
+                                <option value="--numa isolate">Isolate</option>
+                                <option value="--numa numactl">Numactl</option>
+                            </select>
+                            <div class="form-help">NUMA memory allocation strategy</div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="config-flash-attn">Flash Attention</label>
+                            <select id="config-flash-attn">
+                                <option value="">Default</option>
+                                <option value="--flash-attn">Enable (--flash-attn)</option>
+                            </select>
+                            <div class="form-help">Use flash attention for better performance</div>
+                        </div>
+                    </div>
+
+                    <h3 class="config-section">🔬 Advanced Settings</h3>
+                    <div class="form-group">
+                        <label class="form-label" for="config-aliases">OpenAI API Aliases</label>
+                        <input type="text" id="config-aliases" placeholder="gpt-4o-mini, gpt-3.5-turbo">
+                        <div class="form-help">Comma-separated list of OpenAI model names this model should respond to.</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="config-advanced">Additional Parameters</label>
+                        <textarea id="config-advanced" rows="3" placeholder="--rope-freq-base 10000 --rope-freq-scale 1.0"></textarea>
+                        <div class="form-help">Additional llama-server parameters (one per line or space-separated)</div>
+                    </div>
+
+                    <div style="display: flex; gap: 1rem; margin-top: 2rem; flex-wrap: wrap;">
+                        <button type="submit" class="btn btn-primary">💾 Add to Config</button>
+                        <button type="button" class="btn btn-secondary" id="clear-form-btn">✨ Clear Form</button>
+                        <button type="button" class="btn btn-secondary" id="test-config">🧪 Test Connection</button>
+                        <button type="button" class="btn btn-success" id="apply-to-file">📝 Apply to Config File</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="card">
+                <h2>📄 Generated Configuration</h2>
+                <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" id="copy-config">📋 Copy Config</button>
+                    <button class="btn btn-danger" id="clear-config">🗑️ Clear All</button>
+                    <button class="btn btn-secondary" id="export-config">💾 Export YAML</button>
+                </div>
+                <pre id="generated-config">models:
+  # Add models using the configuration form above
+  # They will appear here ready to copy to your config.yaml</pre>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div class="tab-content" id="settings-tab">
+            <div class="settings-panel">
+                <h2>🔧 Connection Settings</h2>
+                <div class="grid">
+                    <div class="form-group">
+                        <label class="form-label" for="llama-swap-url">Llama-Swap URL</label>
+                        <input type="url" id="llama-swap-url" placeholder="http://localhost:8090" value="http://localhost:8090">
+                        <div class="form-help">URL to your llama-swap instance (local, remote, or docker)</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="models-path">Models Path</label>
+                        <input type="text" id="models-path" placeholder="./models" value="./models">
+                        <div class="form-help">Path to your models directory (relative, absolute, or docker volume)</div>
+                    </div>
+                </div>
+                <div class="grid">
+                    <div class="form-group">
+                        <label class="form-label" for="config-file-path">Config File Path</label>
+                        <input type="text" id="config-file-path" placeholder="./config.yaml" value="./config.yaml">
+                        <div class="form-help">Path to your llama-swap config.yaml file</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="connection-timeout">Connection Timeout (seconds)</label>
+                        <input type="number" id="connection-timeout" value="30" min="5" max="120">
+                        <div class="form-help">Timeout for API connections</div>
+                    </div>
+                </div>
+                <div style="margin-top: 1rem;">
+                    <button class="btn btn-primary" id="save-settings">💾 Save Settings</button>
+                    <button class="btn btn-secondary" id="reset-settings">🔄 Reset to Defaults</button>
+                    <button class="btn btn-success" id="test-connection">🔌 Test Connection</button>
+                </div>
+            </div>
+            
+            <div class="settings-panel">
+                <h2>🎨 UI Preferences</h2>
+                <div class="grid">
+                    <div class="form-group">
+                        <label class="form-label" for="refresh-interval">Refresh Interval (seconds)</label>
+                        <input type="number" id="refresh-interval" value="30" min="10" max="300">
+                        <div class="form-help">How often to refresh models and stats</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="max-log-entries">Max Log Entries</label>
+                        <input type="number" id="max-log-entries" value="1000" min="100" max="10000">
+                        <div class="form-help">Maximum number of log entries to keep</div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">
+                        <input type="checkbox" id="auto-detect-models" checked style="width: auto; margin-right: 0.5rem;">
+                        Auto-detect models on startup
+                    </label>
+                    <div class="form-help">Automatically scan for available models when the manager starts</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">
+                        <input type="checkbox" id="backup-on-change" checked style="width: auto; margin-right: 0.5rem;">
+                        Backup config files before changes
+                    </label>
+                    <div class="form-help">Create backup copies before modifying configuration files</div>
+                </div>
+            </div>
+            
+            <div class="settings-panel">
+                <h2>📊 Current Settings Status</h2>
+                <div class="grid">
+                    <div class="metric-card">
+                        <div class="metric-value" id="settings-status">✅</div>
+                        <div class="metric-label">Settings Saved</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="connection-test-result">⏳</div>
+                        <div class="metric-label">Connection Test</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="config-file-status">📄</div>
+                        <div class="metric-label">Config File</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="models-dir-status">📁</div>
+                        <div class="metric-label">Models Directory</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Tab -->
+        <div class="tab-content" id="system-tab">
+            <div class="grid">
+                <div class="card">
+                    <h3>🖥️ Llama-Swap Status</h3>
+                    <div id="system-info">
+                        <p><strong>Connection:</strong> <span id="connection-status">Checking...</span></p>
+                        <p><strong>Endpoint:</strong> <code id="current-endpoint">http://localhost:8090/v1</code></p>
+                        <p><strong>Active Models:</strong> <span id="active-models-count">-</span></p>
+                        <p><strong>Total Requests:</strong> <span id="total-requests">-</span></p>
+                    </div>
+                    <div style="margin-top: 1rem;">
+                        <button class="btn btn-secondary" id="check-status">🔄 Check Connection</button>
+                        <button class="btn btn-secondary" id="open-gui">🌐 Open GUI</button>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>🛠️ System Actions</h3>
+                    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                        <button class="btn btn-secondary" id="test-model">🧪 Test First Active Model</button>
+                        <button class="btn btn-secondary" id="view-logs-cmd">📋 View Docker Logs</button>
+                        <button class="btn btn-secondary" id="restart-service">🔄 Restart Container</button>
+                        <button class="btn btn-secondary" id="clear-cache">🗑️ Clear Model Cache</button>
+                        <button class="btn btn-danger" id="stop-all">⏹️ Stop All Models</button>
+                    </div>
+                    <div class="form-help" style="margin-top: 1rem;">Actions generate commands for copy/paste execution on your host system.</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📈 Performance Monitor</h3>
+                <div class="grid" style="margin-bottom: 1rem;">
+                    <div class="metric-card">
+                        <div class="metric-value" id="memory-usage-metric">-</div>
+                        <div class="metric-label">Memory Usage</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="gpu-usage-metric">-</div>
+                        <div class="metric-label">GPU Usage</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="avg-response-metric">-</div>
+                        <div class="metric-label">Avg Response Time</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" id="api-status-metric">-</div>
+                        <div class="metric-label">API Status</div>
+                    </div>
+                </div>
+                <div id="performance-info">
+                    <p><strong>Memory Usage:</strong> <span id="memory-usage">Loading...</span></p>
+                    <p><strong>GPU Usage:</strong> <span id="gpu-usage">Loading...</span></p>
+                    <p><strong>Avg Response Time:</strong> <span id="avg-response-time">-</span></p>
+                    <p><strong>Last Response:</strong> <span id="last-response-time">-</span></p>
+                    <p><strong>API Status:</strong> <span id="api-status">-</span></p>
+                </div>
+                <div style="margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" id="refresh-stats">🔄 Refresh Stats</button>
+                    <button class="btn btn-secondary" id="quick-test">⚡ Quick Test</button>
+                    <button class="btn btn-secondary" id="health-check">🩺 Health Check</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div class="tab-content" id="logs-tab">
+            <div class="card">
+                <h3>📋 Live Activity Log</h3>
+                <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                    <button class="btn btn-secondary" id="clear-logs">🗑️ Clear</button>
+                    <button class="btn btn-secondary" id="download-logs">💾 Download</button>
+                    <button class="btn btn-secondary" id="auto-scroll-toggle">📜 Auto-scroll: ON</button>
+                </div>
+                <pre id="logs-container" style="height: 400px; overflow-y: auto;">Llama-Swap Manager initialized...
+Ready to monitor activity.
+</pre>
+            </div>
+        </div>
+    </div>
+
+    <script src="ui.js"></script>
+</body>
+</html>
