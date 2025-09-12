@@ -1,5 +1,8 @@
 class LlamaSwapManager {
     constructor() {
+        // FastAPI backend URL
+        this.apiBaseUrl = 'http://localhost:8000/api';
+        
         this.settings = {
             llamaSwapUrl: 'http://localhost:8090',
             modelsPath: './models',
@@ -23,62 +26,95 @@ class LlamaSwapManager {
         this.init();
     }
 
+    // API request helper
+    async apiRequest(endpoint, options = {}) {
+        try {
+            const url = `${this.apiBaseUrl}${endpoint}`;
+            const response = await fetch(url, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                },
+                ...options
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error(`API Error (${endpoint}):`, error);
+            throw error;
+        }
+    }
+
     async init() {
         this.setupTheme();
         this.setupTabs();
         this.setupEventListeners();
         this.setupDragDrop();
-        this.loadSettings();
+        await this.loadSettings();
         this.loadFromStorage();
         await this.loadCurrentConfig();
         await this.checkConnection();
         this.startPeriodicUpdates();
-        this.logActivity('Llama-Swap Manager initialized with enhanced settings');
+        this.logActivity('Llama-Swap Manager initialized with FastAPI backend');
     }
 
-    loadSettings() {
+    async loadSettings() {
         try {
+            const settings = await this.apiRequest('/settings');
+            Object.assign(this.settings, settings);
+            this.applySettingsToUI();
+        } catch (error) {
+            console.error('Failed to load settings from backend:', error);
             const saved = localStorage.getItem('llama-swap-settings');
             if (saved) {
                 this.settings = { ...this.settings, ...JSON.parse(saved) };
             }
             this.applySettingsToUI();
-        } catch (error) {
-            this.logActivity(`Failed to load settings: ${error.message}`);
         }
     }
 
     applySettingsToUI() {
-        document.getElementById('llama-swap-url').value = this.settings.llamaSwapUrl;
-        document.getElementById('models-path').value = this.settings.modelsPath;
-        document.getElementById('config-file-path').value = this.settings.configFilePath;
-        document.getElementById('connection-timeout').value = this.settings.connectionTimeout;
-        document.getElementById('refresh-interval').value = this.settings.refreshInterval;
-        document.getElementById('max-log-entries').value = this.settings.maxLogEntries;
-        document.getElementById('auto-detect-models').checked = this.settings.autoDetectModels;
-        document.getElementById('backup-on-change').checked = this.settings.backupOnChange;
-        document.getElementById('current-endpoint').textContent = `${this.settings.llamaSwapUrl}/v1`;
+        document.getElementById('llama-swap-url').value = this.settings.llamaSwapUrl || this.settings.llama_swap_url || 'http://localhost:8090';
+        document.getElementById('models-path').value = this.settings.modelsPath || this.settings.models_path || './models';
+        document.getElementById('config-file-path').value = this.settings.configFilePath || this.settings.config_file_path || './config.yaml';
+        document.getElementById('connection-timeout').value = this.settings.connectionTimeout || this.settings.connection_timeout || 30;
+        document.getElementById('refresh-interval').value = this.settings.refreshInterval || this.settings.refresh_interval || 30;
+        document.getElementById('max-log-entries').value = this.settings.maxLogEntries || this.settings.max_log_entries || 1000;
+        document.getElementById('auto-detect-models').checked = this.settings.autoDetectModels !== false;
+        document.getElementById('backup-on-change').checked = this.settings.backupOnChange !== false;
+        
+        const llamaSwapUrl = this.settings.llamaSwapUrl || this.settings.llama_swap_url || 'http://localhost:8090';
+        document.getElementById('current-endpoint').textContent = `${llamaSwapUrl}/v1`;
     }
 
-    saveSettings() {
+    async saveSettings() {
         try {
-            this.settings.llamaSwapUrl = document.getElementById('llama-swap-url').value.trim();
-            this.settings.modelsPath = document.getElementById('models-path').value.trim();
-            this.settings.configFilePath = document.getElementById('config-file-path').value.trim();
-            this.settings.connectionTimeout = parseInt(document.getElementById('connection-timeout').value);
-            this.settings.refreshInterval = parseInt(document.getElementById('refresh-interval').value);
-            this.settings.maxLogEntries = parseInt(document.getElementById('max-log-entries').value);
-            this.settings.autoDetectModels = document.getElementById('auto-detect-models').checked;
-            this.settings.backupOnChange = document.getElementById('backup-on-change').checked;
+            const settingsData = {
+                llama_swap_url: document.getElementById('llama-swap-url').value.trim(),
+                models_path: document.getElementById('models-path').value.trim(),
+                config_file_path: document.getElementById('config-file-path').value.trim(),
+                connection_timeout: parseInt(document.getElementById('connection-timeout').value),
+                refresh_interval: parseInt(document.getElementById('refresh-interval').value),
+                max_log_entries: parseInt(document.getElementById('max-log-entries').value),
+                auto_detect_models: document.getElementById('auto-detect-models').checked,
+                backup_on_change: document.getElementById('backup-on-change').checked
+            };
 
-            localStorage.setItem('llama-swap-settings', JSON.stringify(this.settings));
-            document.getElementById('current-endpoint').textContent = `${this.settings.llamaSwapUrl}/v1`;
+            await this.apiRequest('/settings', {
+                method: 'POST',
+                body: JSON.stringify(settingsData)
+            });
+
+            Object.assign(this.settings, settingsData);
             document.getElementById('settings-status').textContent = '✅';
             
             this.showAlert('Settings saved successfully!', 'success');
             this.logActivity('Settings updated and saved');
-            
-            // Update refresh intervals
             this.startPeriodicUpdates();
         } catch (error) {
             document.getElementById('settings-status').textContent = '❌';
@@ -108,27 +144,9 @@ class LlamaSwapManager {
 
     async loadCurrentConfig() {
         try {
-            // In a real implementation, this would read the actual config file
-            // For now, we'll simulate loading the config
-            const configText = `models:
-  "openAI-GPT-oss":
-    cmd: >
-      /app/llama-server
-      -m /models/OpenAI-20B-NEO-CODEPlus-Uncensored-IQ4_NL.gguf
-      -ngl 99
-      -c 4096
-      --port \${PORT}
-      --host 0.0.0.0
-  "qwen3-coder":
-    cmd: >
-      /app/llama-server
-      -m /models/Qwen3-30B-A3B-Instruct-2507-UD-TQ1_0.gguf
-      -ngl 99
-      -c 4096
-      --port \${PORT}
-      --host 0.0.0.0`;
-
-            document.getElementById('current-config-viewer').textContent = configText;
+            const response = await this.apiRequest('/config/current');
+            const configYaml = this.generateYAML({ models: response.models });
+            document.getElementById('current-config-viewer').textContent = configYaml;
             document.getElementById('config-file-status').textContent = '✅';
             this.logActivity('Config file loaded successfully');
         } catch (error) {
@@ -141,16 +159,12 @@ class LlamaSwapManager {
     async applyConfigToFile() {
         if (confirm('Apply generated configuration to config file? This will overwrite the current file.')) {
             try {
-                const configYaml = this.generateYAML(this.generatedConfig);
+                await this.apiRequest('/config/apply', {
+                    method: 'POST',
+                    body: JSON.stringify(this.generatedConfig)
+                });
                 
-                if (this.settings.backupOnChange) {
-                    this.logActivity('Creating config backup before applying changes');
-                    // In real implementation, create backup
-                }
-                
-                // In real implementation, write to file
-                document.getElementById('current-config-viewer').textContent = configYaml;
-                
+                await this.loadCurrentConfig();
                 this.showAlert('Configuration applied to file successfully!', 'success');
                 this.logActivity('Generated configuration applied to config file');
             } catch (error) {
@@ -161,7 +175,7 @@ class LlamaSwapManager {
     }
 
     get baseUrl() {
-        return this.settings.llamaSwapUrl;
+        return this.settings.llamaSwapUrl || this.settings.llama_swap_url || 'http://localhost:8090';
     }
 
     setupTheme() {
@@ -181,7 +195,6 @@ class LlamaSwapManager {
             }
         };
 
-        // Check for saved theme in localStorage
         const savedTheme = localStorage.getItem('theme') || 'dark';
         applyTheme(savedTheme);
 
@@ -282,143 +295,28 @@ class LlamaSwapManager {
             return;
         }
         
-        // Auto-generate filename from URL if not provided
-        if (!filename) {
-            try {
-                const urlObj = new URL(url);
-                const pathSegments = urlObj.pathname.split('/');
-                filename = pathSegments[pathSegments.length - 1];
-                
-                if (!filename || !filename.includes('.')) {
-                    filename = `model-${Date.now()}.gguf`;
-                }
-                
-                document.getElementById('model-filename').value = filename;
-            } catch (error) {
-                filename = `model-${Date.now()}.gguf`;
-                document.getElementById('model-filename').value = filename;
-            }
-        }
-        
-        if (!filename.endsWith('.gguf')) {
-            this.showAlert('Filename should end with .gguf extension', 'warning');
-            return;
-        }
-
-        // Check if File System Access API is available
-        if ('showDirectoryPicker' in window) {
-            await this.downloadWithFileSystemAPI(url, filename);
-        } else {
-            // Fallback to showing download commands
-            this.showDownloadCommands(url, filename);
-        }
-    }
-
-    async downloadWithFileSystemAPI(url, filename) {
         try {
-            // Request directory access
-            const dirHandle = await window.showDirectoryPicker({
-                mode: 'readwrite',
-                startIn: 'documents'
+            this.showProgress(0, 'Starting download...');
+            
+            const response = await this.apiRequest('/models/download', {
+                method: 'POST',
+                body: JSON.stringify({ url, filename: filename || null })
             });
             
-            this.logActivity(`Starting direct download: ${filename} to selected directory`);
-            this.showProgress(0, `Downloading ${filename}...`);
-            
-            const downloadBtn = document.getElementById('download-btn');
-            const originalText = downloadBtn.innerHTML;
-            downloadBtn.disabled = true;
-            downloadBtn.innerHTML = '⏳ Downloading...';
-            
-            const response = await fetch(url);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const contentLength = response.headers.get('Content-Length');
-            const total = contentLength ? parseInt(contentLength, 10) : 0;
-            
-            // Create file handle
-            const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-            const writable = await fileHandle.createWritable();
-            
-            const reader = response.body.getReader();
-            let downloaded = 0;
-            
-            while (true) {
-                const { done, value } = await reader.read();
-                
-                if (done) break;
-                
-                await writable.write(value);
-                downloaded += value.length;
-                
-                if (total > 0) {
-                    const progress = Math.round((downloaded / total) * 100);
-                    this.showProgress(progress, 
-                        `Downloading ${filename}... ${this.formatFileSize(downloaded)} / ${this.formatFileSize(total)} (${progress}%)`);
-                }
-            }
-            
-            await writable.close();
-            
             this.hideProgress();
-            this.showAlert(`Successfully downloaded ${filename} (${this.formatFileSize(downloaded)}) to selected directory`, 'success');
-            this.logActivity(`Download completed: ${filename} (${this.formatFileSize(downloaded)})`);
+            this.showAlert(response.message, 'success');
+            this.logActivity(`Download started: ${response.filename}`);
             
             document.getElementById('model-url').value = '';
             document.getElementById('model-filename').value = '';
             
-            downloadBtn.disabled = false;
-            downloadBtn.innerHTML = originalText;
+            setTimeout(() => this.renderModels(), 2000);
             
         } catch (error) {
             this.hideProgress();
-            
-            const downloadBtn = document.getElementById('download-btn');
-            downloadBtn.disabled = false;
-            downloadBtn.innerHTML = downloadBtn.innerHTML.replace('⏳ Downloading...', '📥 Download Model');
-            
-            if (error.name === 'AbortError') {
-                this.showAlert('Download cancelled by user', 'info');
-                this.logActivity('Download cancelled by user');
-            } else {
-                this.showAlert(`Download failed: ${error.message}`, 'danger');
-                this.logActivity(`Download failed for ${filename}: ${error.message}`);
-                
-                // Fallback to showing commands
-                this.showDownloadCommands(url, filename);
-            }
+            this.showAlert(`Download failed: ${error.message}`, 'danger');
+            this.logActivity(`Download failed: ${error.message}`);
         }
-    }
-
-    showDownloadCommands(url, filename) {
-        const modelsPath = this.settings.modelsPath;
-        const commands = [
-            `# Download ${filename} to your models directory:`,
-            `curl -L -o "${modelsPath}/${filename}" "${url}"`,
-            ``,
-            `# Alternative with wget:`,
-            `wget "${url}" -O "${modelsPath}/${filename}"`,
-            ``,
-            `# With progress bar (recommended for large files):`,
-            `curl -L --progress-bar -o "${modelsPath}/${filename}" "${url}"`,
-            ``,
-            `# Verify download:`,
-            `ls -lh "${modelsPath}/${filename}"`,
-            ``,
-            `# Check file integrity (if available):`,
-            `# shasum -a 256 "${modelsPath}/${filename}"`
-        ].join('\n');
-        
-        this.showCommandsModal('Download Commands', commands);
-        this.showAlert(`Generated download commands for ${filename}. Browser cannot directly access your models directory.`, 'info');
-        this.logActivity(`Generated download commands for: ${filename} to ${modelsPath}`);
-        
-        // Clear the input fields
-        document.getElementById('model-url').value = '';
-        document.getElementById('model-filename').value = '';
     }
 
     async testConnectionFromSettings() {
@@ -453,20 +351,25 @@ class LlamaSwapManager {
 
     async backupConfig() {
         try {
-            const configText = document.getElementById('current-config-viewer').textContent;
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const blob = new Blob([configText], { type: 'text/yaml' });
+            const response = await fetch(`${this.apiBaseUrl}/config/backup`);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const blob = await response.blob();
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `config-backup-${timestamp}.yaml`;
+            a.download = response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'config-backup.yaml';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
             
-            this.showAlert('Configuration backup created', 'success');
+            this.showAlert('Configuration backup downloaded', 'success');
             this.logActivity('Configuration backup created and downloaded');
+            
         } catch (error) {
             this.showAlert(`Backup failed: ${error.message}`, 'danger');
             this.logActivity(`Config backup failed: ${error.message}`);
@@ -486,18 +389,29 @@ class LlamaSwapManager {
 
     async uploadFile(file) {
         try {
-            this.logActivity(`Starting upload simulation: ${file.name} (${this.formatFileSize(file.size)})`);
+            this.logActivity(`Starting upload: ${file.name} (${this.formatFileSize(file.size)})`);
             this.showProgress(0, `Uploading ${file.name}...`);
             
-            for (let i = 0; i <= 100; i += 10) {
-                await new Promise(resolve => setTimeout(resolve, 100));
-                this.showProgress(i, `Uploading ${file.name}... ${i}%`);
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const response = await fetch(`${this.apiBaseUrl}/models/upload`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `HTTP ${response.status}`);
             }
-
+            
+            const result = await response.json();
+            
             this.hideProgress();
-            this.showAlert(`${file.name} upload simulation completed`, 'success');
-            this.logActivity(`Upload simulation completed: ${file.name}`);
+            this.showAlert(result.message, 'success');
+            this.logActivity(`Upload completed: ${file.name}`);
             await this.renderModels();
+            
         } catch (error) {
             this.hideProgress();
             this.showAlert(`Failed to upload ${file.name}: ${error.message}`, 'danger');
@@ -510,25 +424,20 @@ class LlamaSwapManager {
         const activeModelsEl = document.getElementById('active-models-count');
         
         try {
-            const response = await fetch(`${this.baseUrl}/v1/models`, {
-                timeout: this.settings.connectionTimeout * 1000
-            });
+            const systemStatus = await this.apiRequest('/system/status');
             
-            if (response.ok) {
-                const data = await response.json();
-                const modelCount = data.data?.length || 0;
-                
+            if (systemStatus.connection_status === 'connected') {
                 statusEl.innerHTML = '<div class="status-indicator"><div class="status-dot connected"></div>Connected</div>';
-                if (activeModelsEl) activeModelsEl.textContent = modelCount;
+                if (activeModelsEl) activeModelsEl.textContent = systemStatus.active_models;
                 
                 if (showAlerts) {
                     this.showAlert('Connection successful!', 'success');
-                    this.logActivity(`Connected to llama-swap - ${modelCount} models available`);
+                    this.logActivity(`Connected to llama-swap - ${systemStatus.active_models} models available`);
                 }
                 await this.renderModels();
                 return true;
             } else {
-                throw new Error(`HTTP ${response.status}`);
+                throw new Error('Disconnected');
             }
         } catch (error) {
             statusEl.innerHTML = '<div class="status-indicator"><div class="status-dot disconnected"></div>Disconnected</div>';
@@ -544,107 +453,134 @@ class LlamaSwapManager {
     }
 
     async renderModels() {
-        let activeModels = [];
         try {
-            const response = await fetch(`${this.baseUrl}/v1/models`);
-            if (response.ok) {
-                const data = await response.json();
-                activeModels = data.data || [];
-            }
-        } catch (error) {
-            this.logActivity('Could not fetch active models - showing configured models only');
-        }
-
-        const activeModelMap = new Map(activeModels.map(m => [m.id, m]));
-        const configuredModelIds = Object.keys(this.generatedConfig.models);
-        const allModelIds = [...new Set([...activeModelMap.keys(), ...configuredModelIds])];
-
-        document.getElementById('model-count').textContent = 
-            `${activeModelMap.size} active | ${configuredModelIds.length} configured`;
-
-        const container = document.getElementById('models-list');
-        if (allModelIds.length === 0) {
-            container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 2rem;">No models found. Add a model to your configuration or ensure llama-swap is running with models loaded.</p>';
-            return;
-        }
-
-        container.innerHTML = allModelIds.sort().map(modelId => {
-            const isActive = activeModelMap.has(modelId);
-            const isConfigured = configuredModelIds.includes(modelId);
-            const modelData = activeModelMap.get(modelId);
-
-            const statusBadge = isActive
-                ? `<span class="status-badge status-active">🟢 Active</span>`
-                : `<span class="status-badge status-inactive">⚪ Inactive</span>`;
+            const modelsData = await this.apiRequest('/models');
+            const { active_models, configured_models, local_files } = modelsData;
             
-            let details = '';
-            if (isActive && modelData) {
-                details = `<p style="color: var(--text-secondary); margin: 0; font-size: 0.875rem;">
-                            Owner: ${modelData.owned_by} • Created: ${new Date(modelData.created * 1000).toLocaleString()}
-                        </p>`;
-            } else if (isConfigured) {
-                const config = this.generatedConfig.models[modelId];
-                const filePath = this.extractParam(config.cmd, '-m') || 'Unknown path';
-                const ngl = this.extractParam(config.cmd, '-ngl') || '99';
-                const ctx = this.extractParam(config.cmd, '-c') || '4096';
-                details = `<p style="color: var(--text-secondary); margin: 0; font-size: 0.875rem;">
-                            File: ${filePath.split('/').pop()} • GPU Layers: ${ngl} • Context: ${ctx}
-                            ${config.aliases ? ` • Aliases: ${config.aliases.join(', ')}` : ''}
-                        </p>`;
+            const activeModelMap = new Map(active_models.map(m => [m.id, m]));
+            
+            const allModelIds = [...new Set([
+                ...activeModelMap.keys(),
+                ...configured_models,
+                ...local_files.map(f => f.replace('.gguf', ''))
+            ])];
+
+            document.getElementById('model-count').textContent = 
+                `${active_models.length} active | ${configured_models.length} configured | ${local_files.length} local files`;
+
+            const container = document.getElementById('models-list');
+            if (allModelIds.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-muted); text-align: center; padding: 2rem;">No models found. Add a model to your configuration or ensure llama-swap is running with models loaded.</p>';
+                return;
             }
 
-            return `
-                <div class="model-card">
-                    <div class="model-header">
-                        <div>
-                            <h3 class="model-name">${modelId}</h3>
-                            ${details}
-                        </div>
-                        <div class="model-actions">
-                            ${statusBadge}
-                            ${isConfigured ? `
-                                <button class="btn btn-secondary" onclick="manager.editModelConfig('${modelId}')">
-                                    ✏️ Edit
-                                </button>
-                                <button class="btn btn-danger" onclick="manager.removeModelFromConfig('${modelId}')">
-                                    🗑️ Remove
-                                </button>
-                            ` : `
-                                <button class="btn btn-secondary" onclick="manager.useModel('${modelId}')">
-                                    ➕ Add Config
-                                </button>
-                            `}
+            container.innerHTML = allModelIds.sort().map(modelId => {
+                const isActive = activeModelMap.has(modelId);
+                const isConfigured = configured_models.includes(modelId);
+                const hasLocalFile = local_files.some(f => f.replace('.gguf', '') === modelId);
+                const modelData = activeModelMap.get(modelId);
+
+                const statusBadge = isActive
+                    ? `<span class="status-badge status-active">🟢 Active</span>`
+                    : `<span class="status-badge status-inactive">⚪ Inactive</span>`;
+                
+                let details = '';
+                if (isActive && modelData) {
+                    details = `<p style="color: var(--text-secondary); margin: 0; font-size: 0.875rem;">
+                                Owner: ${modelData.owned_by} • Created: ${new Date(modelData.created * 1000).toLocaleString()}
+                            </p>`;
+                } else if (hasLocalFile) {
+                    details = `<p style="color: var(--text-secondary); margin: 0; font-size: 0.875rem;">
+                                Local file available • Ready for configuration
+                            </p>`;
+                }
+
+                return `
+                    <div class="model-card">
+                        <div class="model-header">
+                            <div>
+                                <h3 class="model-name">${modelId}</h3>
+                                ${details}
+                            </div>
+                            <div class="model-actions">
+                                ${statusBadge}
+                                ${isConfigured ? `
+                                    <button class="btn btn-secondary" onclick="manager.editModelConfig('${modelId}')">
+                                        ✍️ Edit
+                                    </button>
+                                    <button class="btn btn-danger" onclick="manager.removeModelFromConfig('${modelId}')">
+                                        🗑️ Remove
+                                    </button>
+                                ` : `
+                                    <button class="btn btn-secondary" onclick="manager.useModel('${modelId}')">
+                                        ➕ Add Config
+                                    </button>
+                                `}
+                            </div>
                         </div>
                     </div>
-                </div>
-            `;
-        }).join('');
+                `;
+            }).join('');
+        } catch (error) {
+            console.error('Error rendering models:', error);
+            document.getElementById('models-list').innerHTML = 
+                `<p style="color: var(--danger); text-align: center; padding: 2rem;">Error loading models: ${error.message}</p>`;
+        }
     }
 
     useModel(modelId) {
         document.getElementById('config-name').value = modelId;
-        document.getElementById('config-file').value = `${this.settings.modelsPath}/${modelId}.gguf`;
+        document.getElementById('config-file').value = `/models/${modelId}.gguf`;
         document.querySelector('[data-tab="config"]').click();
         this.showAlert(`Pre-filled form with model: ${modelId}`, 'success');
         this.logActivity(`Pre-filled configuration for model: ${modelId}`);
     }
 
-    addModelToConfig() {
+    async addModelToConfig() {
         const formData = this.getFormData();
         if (!formData.name || !formData.file) {
             this.showAlert('Model name and file path are required', 'warning');
             return;
         }
 
-        const modelConfig = this.buildModelConfig(formData);
-        this.generatedConfig.models[formData.name] = modelConfig;
-        
-        this.updateConfigDisplay();
-        this.saveToStorage();
-        this.showAlert(`Added "${formData.name}" to configuration`, 'success');
-        this.logActivity(`Added model configuration: ${formData.name}`);
-        this.renderModels();
-        this.clearForm();
+        try {
+            const modelConfig = {
+                name: formData.name,
+                file_path: formData.file,
+                ngl: parseInt(formData.ngl),
+                ctx: parseInt(formData.ctx),
+                batch: parseInt(formData.batch),
+                threads: formData.threads ? parseInt(formData.threads) : null,
+                temp: parseFloat(formData.temp),
+                top_p: parseFloat(formData.topP),
+                top_k: parseInt(formData.topK),
+                repeat_penalty: parseFloat(formData.repeatPenalty),
+                ubatch: parseInt(formData.ubatch),
+                mlock: formData.mlock === '--mlock',
+                numa: formData.numa || null,
+                flash_attn: formData.flashAttn === '--flash-attn',
+                aliases: formData.aliases ? formData.aliases.split(',').map(a => a.trim()).filter(a => a) : null,
+                advanced: formData.advanced || null
+            };
+
+            const response = await this.apiRequest('/config/models', {
+                method: 'POST',
+                body: JSON.stringify(modelConfig)
+            });
+
+            this.generatedConfig.models[formData.name] = response.config;
+            this.updateConfigDisplay();
+            this.saveToStorage();
+            
+            this.showAlert(`Added "${formData.name}" to configuration`, 'success');
+            this.logActivity(`Added model configuration: ${formData.name}`);
+            this.renderModels();
+            this.clearForm();
+            
+        } catch (error) {
+            this.showAlert(`Failed to add model: ${error.message}`, 'danger');
+            this.logActivity(`Failed to add model configuration: ${error.message}`);
+        }
     }
 
     getFormData() {
@@ -668,114 +604,25 @@ class LlamaSwapManager {
         };
     }
 
-    buildModelConfig(data) {
-        let cmd = `/app/llama-server -m ${data.file}`;
-        
-        cmd += ` -ngl ${data.ngl} -c ${data.ctx} -b ${data.batch}`;
-        if (data.threads) cmd += ` -t ${data.threads}`;
-        cmd += ` -ub ${data.ubatch}`;
-        
-        cmd += ` --temp ${data.temp} --top-p ${data.topP} --top-k ${data.topK}`;
-        cmd += ` --repeat-penalty ${data.repeatPenalty}`;
-        
-        if (data.mlock) cmd += ` ${data.mlock}`;
-        if (data.numa) cmd += ` ${data.numa}`;
-        if (data.flashAttn) cmd += ` ${data.flashAttn}`;
-        
-        if (data.advanced) {
-            const advanced = data.advanced.trim();
-            if (advanced) cmd += ` ${advanced}`;
-        }
-        
-        cmd += ` --port \${PORT} --host 0.0.0.0`;
-
-        const modelConfig = { cmd };
-        
-        if (data.aliases) {
-            const aliases = data.aliases.split(',').map(a => a.trim()).filter(a => a);
-            if (aliases.length > 0) modelConfig.aliases = aliases;
-        }
-
-        return modelConfig;
-    }
-
-    editModelConfig(modelId) {
-        const model = this.generatedConfig.models[modelId];
-        if (!model) {
-            this.showAlert(`Model "${modelId}" not found in configuration`, 'warning');
-            return;
-        }
-        
-        this.populateFormFromConfig(modelId, model);
-        document.querySelector('[data-tab="config"]').click();
-        this.showAlert(`Editing configuration for "${modelId}"`, 'info');
-        this.logActivity(`Started editing configuration: ${modelId}`);
-    }
-
-    populateFormFromConfig(modelId, model) {
-        const cmd = model.cmd;
-        
-        document.getElementById('config-name').value = modelId;
-        document.getElementById('config-file').value = this.extractParam(cmd, '-m') || '';
-        document.getElementById('config-ngl').value = this.extractParam(cmd, '-ngl') || '99';
-        document.getElementById('config-ctx').value = this.extractParam(cmd, '-c') || '4096';
-        document.getElementById('config-batch').value = this.extractParam(cmd, '-b') || '2048';
-        document.getElementById('config-threads').value = this.extractParam(cmd, '-t') || '';
-        document.getElementById('config-ubatch').value = this.extractParam(cmd, '-ub') || '512';
-        document.getElementById('config-temp').value = this.extractParam(cmd, '--temp') || '0.7';
-        document.getElementById('config-top-p').value = this.extractParam(cmd, '--top-p') || '0.95';
-        document.getElementById('config-top-k').value = this.extractParam(cmd, '--top-k') || '40';
-        document.getElementById('config-repeat-penalty').value = this.extractParam(cmd, '--repeat-penalty') || '1.10';
-        
-        document.getElementById('config-mlock').value = cmd.includes('--mlock') ? '--mlock' : '';
-        document.getElementById('config-flash-attn').value = cmd.includes('--flash-attn') ? '--flash-attn' : '';
-        
-        if (cmd.includes('--numa distribute')) {
-            document.getElementById('config-numa').value = '--numa distribute';
-        } else if (cmd.includes('--numa isolate')) {
-            document.getElementById('config-numa').value = '--numa isolate';
-        } else if (cmd.includes('--numa numactl')) {
-            document.getElementById('config-numa').value = '--numa numactl';
-        } else {
-            document.getElementById('config-numa').value = '';
-        }
-        
-        document.getElementById('config-aliases').value = (model.aliases || []).join(', ');
-        
-        const advanced = this.extractAdvancedParams(cmd);
-        document.getElementById('config-advanced').value = advanced;
-    }
-
-    extractParam(cmd, param) {
-        const regex = new RegExp(`${param}\\s+([^\\s]+)`);
-        const match = cmd.match(regex);
-        return match ? match[1] : null;
-    }
-
-    extractAdvancedParams(cmd) {
-        let advanced = cmd;
-        const knownParams = ['-m', '-ngl', '-c', '-b', '-t', '-ub', '--temp', '--top-p', '--top-k', '--repeat-penalty', '--port', '--host', '--mlock', '--flash-attn', '--numa'];
-        
-        knownParams.forEach(param => {
-            if (param.startsWith('--')) {
-                advanced = advanced.replace(new RegExp(`${param}(\\s+[^\\s]+)?`, 'g'), '');
-            } else {
-                advanced = advanced.replace(new RegExp(`${param}\\s+[^\\s]+`, 'g'), '');
-            }
-        });
-        
-        advanced = advanced.replace(/\/app\/llama-server/g, '').replace(/\${PORT}/g, '').replace(/0\.0\.0\.0/g, '').replace(/\s+/g, ' ').trim();
-        return advanced;
-    }
-
-    removeModelFromConfig(modelId) {
+    async removeModelFromConfig(modelId) {
         if (confirm(`Are you sure you want to remove "${modelId}" from your configuration?`)) {
-            delete this.generatedConfig.models[modelId];
-            this.saveToStorage();
-            this.updateConfigDisplay();
-            this.renderModels();
-            this.showAlert(`Removed "${modelId}" from configuration`, 'success');
-            this.logActivity(`Removed model configuration: ${modelId}`);
+            try {
+                await this.apiRequest(`/config/models/${encodeURIComponent(modelId)}`, {
+                    method: 'DELETE'
+                });
+                
+                delete this.generatedConfig.models[modelId];
+                this.saveToStorage();
+                this.updateConfigDisplay();
+                this.renderModels();
+                
+                this.showAlert(`Removed "${modelId}" from configuration`, 'success');
+                this.logActivity(`Removed model configuration: ${modelId}`);
+                
+            } catch (error) {
+                this.showAlert(`Failed to remove model: ${error.message}`, 'danger');
+                this.logActivity(`Failed to remove model: ${error.message}`);
+            }
         }
     }
 
@@ -865,46 +712,18 @@ class LlamaSwapManager {
     async testModel() {
         try {
             this.logActivity('Starting model test...');
-            const modelsRes = await fetch(`${this.baseUrl}/v1/models`);
-            const modelsData = await modelsRes.json();
-            const activeModels = modelsData.data;
-
-            if (!activeModels || activeModels.length === 0) {
-                throw new Error('No active models available to test');
-            }
             
-            const testModelId = activeModels[0].id;
-            this.showAlert(`Testing model: ${testModelId}...`, 'info');
-            this.logActivity(`Testing model: ${testModelId}`);
-
-            const startTime = Date.now();
-            const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: testModelId,
-                    messages: [{ role: 'user', content: 'Hello! Please respond with just "Test successful".' }],
-                    max_tokens: 10,
-                    temperature: 0.1
-                })
+            const response = await this.apiRequest('/system/test', {
+                method: 'POST'
             });
             
-            const responseTime = Date.now() - startTime;
-            
-            if (!response.ok) {
-                throw new Error(`API returned HTTP ${response.status}`);
-            }
-            
-            const result = await response.json();
-            const reply = result.choices?.[0]?.message?.content.trim() || 'No response';
+            this.showAlert(`Test successful! Model: ${response.model}, Response: "${response.response}" (${response.response_time}ms)`, 'success');
+            this.logActivity(`Model test successful - ${response.model}: ${response.response} (${response.response_time}ms)`);
             
             this.stats.totalRequests++;
-            this.stats.avgResponseTime = responseTime;
-            this.stats.lastResponseTime = responseTime;
+            this.stats.avgResponseTime = response.response_time;
             this.updateStatsDisplay();
             
-            this.showAlert(`Test successful! Response: "${reply}" (${responseTime}ms)`, 'success');
-            this.logActivity(`Model test successful - Response: "${reply}" (${responseTime}ms)`);
         } catch (error) {
             this.showAlert(`Model test failed: ${error.message}`, 'danger');
             this.logActivity(`Model test failed: ${error.message}`);
@@ -1063,36 +882,12 @@ class LlamaSwapManager {
     async quickTest() {
         try {
             this.logActivity('Starting quick diagnostic test...');
-            const modelsRes = await fetch(`${this.baseUrl}/v1/models`);
-            const modelsData = await modelsRes.json();
-            const activeModels = modelsData.data;
-
-            if (!activeModels || activeModels.length === 0) {
-                throw new Error('No active models available to test');
-            }
             
-            const testModelId = activeModels[0].id;
-            this.showAlert(`Running quick test on: ${testModelId}...`, 'info');
-            this.logActivity(`Quick testing model: ${testModelId}`);
-
-            const startTime = Date.now();
-            const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: testModelId,
-                    messages: [{ role: 'user', content: 'Hi' }],
-                    max_tokens: 1,
-                    temperature: 0
-                })
+            const response = await this.apiRequest('/system/test', {
+                method: 'POST'
             });
             
-            const responseTime = Date.now() - startTime;
-            
-            if (!response.ok) {
-                throw new Error(`API returned HTTP ${response.status}`);
-            }
-            
+            const responseTime = response.response_time;
             document.getElementById('last-response-time').textContent = `${responseTime}ms`;
             document.getElementById('api-status').innerHTML = responseTime > 5000 ? 
                 '<span style="color: var(--warning)">⚠️ Slow</span>' : 
@@ -1116,47 +911,30 @@ class LlamaSwapManager {
         const results = [];
         
         try {
-            const startTime = Date.now();
-            const modelsResponse = await fetch(`${this.baseUrl}/v1/models`);
-            const apiTime = Date.now() - startTime;
+            const systemStatus = await this.apiRequest('/system/status');
             
-            if (modelsResponse.ok) {
-                results.push(`✅ API responding (${apiTime}ms)`);
-                const data = await modelsResponse.json();
-                results.push(`✅ ${data.data?.length || 0} models loaded`);
+            if (systemStatus.connection_status === 'connected') {
+                results.push(`✅ API responding`);
+                results.push(`✅ ${systemStatus.active_models} models loaded`);
                 
-                if (data.data && data.data.length > 0) {
-                    const testStart = Date.now();
+                if (systemStatus.active_models > 0) {
                     try {
-                        const testResponse = await fetch(`${this.baseUrl}/v1/chat/completions`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                model: data.data[0].id,
-                                messages: [{ role: 'user', content: 'Test' }],
-                                max_tokens: 1,
-                                temperature: 0
-                            })
-                        });
-                        const inferenceTime = Date.now() - testStart;
+                        const testResponse = await this.apiRequest('/system/test', { method: 'POST' });
+                        const inferenceTime = testResponse.response_time;
                         
-                        if (testResponse.ok) {
-                            const status = inferenceTime > 10000 ? '⚠️ Very slow' : 
-                                         inferenceTime > 5000 ? '⚠️ Slow' : '✅ Good';
-                            results.push(`${status} Inference: ${inferenceTime}ms`);
-                            
-                            if (inferenceTime > 10000) {
-                                results.push(`💡 Suggestion: Check GPU usage (-ngl setting)`);
-                            }
-                        } else {
-                            results.push(`❌ Inference failed: HTTP ${testResponse.status}`);
+                        const status = inferenceTime > 10000 ? '⚠️ Very slow' : 
+                                     inferenceTime > 5000 ? '⚠️ Slow' : '✅ Good';
+                        results.push(`${status} Inference: ${inferenceTime}ms`);
+                        
+                        if (inferenceTime > 10000) {
+                            results.push(`💡 Suggestion: Check GPU usage (-ngl setting)`);
                         }
                     } catch (error) {
                         results.push(`❌ Inference error: ${error.message}`);
                     }
                 }
             } else {
-                results.push(`❌ API error: HTTP ${modelsResponse.status}`);
+                results.push(`❌ API error: ${systemStatus.connection_status}`);
             }
             
             try {
@@ -1229,29 +1007,44 @@ class LlamaSwapManager {
         }
     }
 
-    clearLogs() {
-        this.logs = [];
-        const logContainer = document.getElementById('logs-container');
-        if (logContainer) {
-            logContainer.textContent = 'Logs cleared.\n';
+    async clearLogs() {
+        try {
+            await this.apiRequest('/logs', { method: 'DELETE' });
+            this.logs = [];
+            const logContainer = document.getElementById('logs-container');
+            if (logContainer) {
+                logContainer.textContent = 'Logs cleared.\n';
+            }
+            this.showAlert('Logs cleared successfully', 'success');
+        } catch (error) {
+            this.showAlert(`Failed to clear logs: ${error.message}`, 'danger');
         }
-        this.logActivity('Logs cleared by user');
     }
 
-    downloadLogs() {
-        const logText = this.logs.join('\n');
-        const blob = new Blob([logText], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        a.href = url;
-        a.download = `llama-swap-logs-${timestamp}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        this.showAlert('Logs downloaded', 'success');
-        this.logActivity('Logs exported to file');
+    async downloadLogs() {
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/logs/download`);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || 'logs.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            this.showAlert('Logs downloaded', 'success');
+            this.logActivity('Logs exported to file');
+            
+        } catch (error) {
+            this.showAlert(`Download failed: ${error.message}`, 'danger');
+        }
     }
 
     toggleAutoScroll() {
@@ -1305,7 +1098,7 @@ class LlamaSwapManager {
         
         alert.innerHTML = `
             <span>${icon} ${message}</span>
-            <button style="background: none; border: none; color: inherit; cursor: pointer; margin-left: auto; font-size: 18px; padding: 0.25rem;" onclick="this.parentElement.remove()">✖</button>
+            <button style="background: none; border: none; color: inherit; cursor: pointer; margin-left: auto; font-size: 18px; padding: 0.25rem;" onclick="this.parentElement.remove()">✖️</button>
         `;
         
         document.body.appendChild(alert);
@@ -1367,9 +1160,10 @@ class LlamaSwapManager {
     }
 }
 
+// Initialize the manager when the page loads
 const manager = new LlamaSwapManager();
 window.manager = manager;
 
 setTimeout(() => {
-    manager.showAlert('🦙 Welcome to Llama-Swap Manager! Enhanced with flexible configuration and dark theme.', 'success');
+    manager.showAlert('🦙 Welcome to Llama-Swap Manager! Now with FastAPI backend.', 'success');
 }, 1000);

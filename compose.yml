@@ -1,7 +1,31 @@
 services:
+  # Your new FastAPI backend
+  llama-swap-manager:
+    build: .
+    container_name: llama-swap-manager
+    ports:
+      - "${MANAGER_PORT:-8000}:8000"
+    volumes:
+      - "${MODELS_PATH:-./models}:/app/models"
+      - "${CONFIG_PATH:-./config.yaml}:/app/config.yaml"
+      - "./data:/app/data"
+      - "./static:/app/static"
+    environment:
+      - LLAMA_SWAP_URL=${LLAMA_SWAP_URL:-http://llama-swap:8080}
+      - MODELS_PATH=/app/models
+      - CONFIG_PATH=/app/config.yaml
+      - DATA_DIR=/app/data
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-50000000000}
+    depends_on:
+      - llama-swap
+    restart: unless-stopped
+    networks:
+      - llama-net
+
+  # Original llama-swap service
   llama-swap:
     image: ghcr.io/mostlygeek/llama-swap:cuda
-    container_name: llama-swap
+    container_name: llama-swap2
     env_file: .env
     ports:
       - "${LLAMA_SWAP_PORT:-8090}:8080"
@@ -31,26 +55,9 @@ services:
       options:
         max-size: "${LOG_MAX_SIZE:-10m}"
         max-file: "${LOG_MAX_FILES:-3}"
-
-  llama-swap-ui:
-    image: nginx:alpine
-    container_name: llama-swap-ui
-    ports:
-      - "${UI_PORT:-3001}:80"
-    volumes:
-      - ./static:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-    restart: unless-stopped
-    depends_on:
-      llama-swap:
-        condition: service_healthy
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "1m"
-        max-file: "2"
+    networks:
+      - llama-net
 
 networks:
-  default:
-    name: llama-swap-net
+  llama-net:
     driver: bridge

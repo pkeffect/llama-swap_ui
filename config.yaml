@@ -1,17 +1,1 @@
-models:
-  "openAI-GPT-oss":
-    cmd: >
-      /app/llama-server
-      -m /models/OpenAI-20B-NEO-CODEPlus-Uncensored-IQ4_NL.gguf
-      -ngl 99
-      -c 4096
-      --port ${PORT}
-      --host 0.0.0.0
-  "qwen3-coder":
-    cmd: >
-      /app/llama-server
-      -m /models/Qwen3-30B-A3B-Instruct-2507-UD-TQ1_0.gguf
-      -ngl 99
-      -c 4096
-      --port ${PORT}
-      --host 0.0.0.0
+models: {}
